@@ -48,7 +48,6 @@ web_modules/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
-tsconfig.node.json
 
 # Optional npm cache directory
 .npm
