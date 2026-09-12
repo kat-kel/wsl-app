@@ -21,7 +21,7 @@ backend-ready:
 test: test-back test-front
 
 [working-directory: "backend"]
-test-back:
+test-back: backend-ready
     uv run pytest
 
 test-docker:

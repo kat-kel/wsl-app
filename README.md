@@ -17,7 +17,19 @@ just up
 Open `http://localhost:5173`. The API is available at
 `http://localhost:8000`, including `GET /health`.
 
-Compose reads the database (`DATABASE_URL`) and CORS (`CORS_ORIGINS`) from the backend's [`.env`](./backend/.env.example) file. The frontend's [`.env`](./frontend/.env.example) file injects the frontend's API URL (`VITE_API_URL`). The committed `.env.example` files contain local values only. Staging and production use the same application images with `DATABASE_URL`, `CORS_ORIGINS`, and `VITE_API_URL` supplied by their Cloud Run deployment configuration.
+We manage 3 URL settings:
+
+- `DATABASE_URL` : URL to the PostgreSQL database, which the backend uses to connect to the data source. Locally, this runs in the Docker image, and you should make sure nothing else on your local environment is listening on the port you have configured in the `.env` file, i.e. `5432`.
+- `CORS_ORIGINS` : URL of the CORS origin, which the backend uses to serve the API.
+- `VITE_API_URL` : URL pointing to where the frontend fetches the backend.
+
+The settings are managed multiple times, at multiple levesls, in different `.env` files.
+
+- [root level](./.env.example) : Configuration for the containerized application, read with [compose](compose.yaml).
+  - Compose injects `DATABASE_URL` and `CORS_ORIGINS` into the backend service as environment variables, overriding the [`backend/.env`](./backend/.env.example) file because the FastAPI code privileges env vars over its local `.env` file.
+  - Compose injects `VITE_API_URL` into the frontend service as environment variables, overriding the [`frontend/.env`](./frontend/.env.example) file.
+- [backend/](./.backend/.env.example) : Used when running the FastAPI backend outside the Docker container, with the host's Python.
+- [frontend/](./.frontend/.env.example) : Used when runnig the Vite outside the Docker container, with the host's Node.
 
 Local Postgres is the Compose `db` service (`app` / `app` / `app`). The backend container uses hostname `db` in `DATABASE_URL`. DBeaver and other host clients use `localhost:5432` with the same database, user, and password. Host-side pytest or uvicorn can copy `backend/.env.example` to `backend/.env`, which points at that published port.
 
