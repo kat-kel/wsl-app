@@ -1,3 +1,4 @@
+# For local development only. The Cloud deployments will read backend and frontend's Dockerfiles.
 services:
   db:
     image: postgres:18.6-trixie
@@ -18,25 +19,30 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: deploy/Dockerfile.backend
     command:
       - /app/backend/.venv/bin/uvicorn
       - app.main:app
       - --host
       - 0.0.0.0
       - --port
-      - "8000"
+      - "${BACKEND_PORT:-8000}"
       - --reload
     working_dir: /app
     environment:
+      # PORT is intentionally not set here: the command: above already passes
+      # --port explicitly, and config.py's AppSettings doesn't read PORT anyway.
+      # It's only consumed by Dockerfile.backend's own CMD, which this compose
+      # file never runs (only Cloud Run does).
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      BACKEND_URL: ${BACKEND_URL:-http://backend:${BACKEND_PORT:-8000}}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-5173}}
     volumes:
       - ./backend/src:/app/backend/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
     depends_on:
       db:
         condition: service_healthy
@@ -46,12 +52,14 @@ services:
     working_dir: /app
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      # PORT is set here becasue the local Vite config reads it 
+      PORT: ${FRONTEND_PORT:-5173}
+      VITE_API_URL: ${VITE_API_URL:-http://backend:${BACKEND_PORT:-8000}}
     volumes:
       - ./frontend:/app
       - frontend-node-modules:/app/node_modules
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
     depends_on:
       - backend
 

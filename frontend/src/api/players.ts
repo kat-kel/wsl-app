@@ -1,6 +1,6 @@
 import type { Player } from "../types/player";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const API_BASE = "/api";
 
 export async function fetchPlayers(): Promise<Player[]> {
   const response = await fetch(`${API_BASE}/players`);

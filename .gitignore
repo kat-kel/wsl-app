@@ -1,3 +1,4 @@
 .env
 *.csv
 alembic/versions/
+.DS_STORE

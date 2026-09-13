@@ -57,7 +57,7 @@ jobs:
       - run: npm install
       - run: npm test
       - run: npm run typecheck
-      - run: VITE_API_URL=http://localhost:8000 npm run build
+      - run: npm run build
 
   images:
     runs-on: ubuntu-latest
@@ -68,13 +68,12 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.backend
+          file: deploy/Dockerfile.backend
           push: false
           tags: wsl-backend:ci
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.frontend
+          file: deploy/Dockerfile.frontend
           push: false
           tags: wsl-frontend:ci
-          build-args: VITE_API_URL=http://localhost:8000

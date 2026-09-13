@@ -24,9 +24,6 @@ test: test-back test-front
 test-back: backend-ready
     uv run pytest
 
-test-docker:
-    docker compose exec backend pytest
-
 [working-directory: "frontend"]
 test-front:
     npm test
