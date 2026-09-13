@@ -11,17 +11,34 @@ def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-class AppSettings(BaseSettings):
+class DatabaseSettings(BaseSettings):
+    """What a process needs to reach the database, and nothing else.
+
+    Migrations are their own deploy step and never serve a request, so they read
+    this rather than AppSettings. Keeping the two apart means the migration step
+    is not handed an API key it has no use for, and cannot fail to start over a
+    field that has nothing to do with the schema.
+    """
+
     database_url: str
-    cors_origins: str
-    # Comma-separated so several keys can be valid at once: during a rotation the
-    # old and the new key are both accepted until every client has moved over.
-    write_api_keys: str
 
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
     )
+
+
+class AppSettings(DatabaseSettings):
+    """Everything the API service needs, the database connection included.
+
+    Every field here is required: the write routes are always mounted, so a
+    deployment missing a key would serve them broken rather than not at all.
+    """
+
+    cors_origins: str
+    # Comma-separated so several keys can be valid at once: during a rotation the
+    # old and the new key are both accepted until every client has moved over.
+    write_api_keys: str
 
     @field_validator("write_api_keys")
     @classmethod
@@ -43,6 +60,11 @@ class AppSettings(BaseSettings):
     @property
     def write_api_key_list(self) -> list[str]:
         return _split_csv(self.write_api_keys)
+
+
+@lru_cache
+def get_database_settings() -> DatabaseSettings:
+    return DatabaseSettings()
 
 
 @lru_cache

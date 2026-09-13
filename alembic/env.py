@@ -5,7 +5,7 @@ from sqlalchemy.pool import NullPool
 from sqlmodel import SQLModel, create_engine
 
 import app.models  # noqa: F401
-from app.config import get_settings
+from app.config import get_database_settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -40,7 +40,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = get_settings().database_url
+    url = get_database_settings().database_url
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -59,7 +59,7 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = create_engine(get_settings().database_url, poolclass=NullPool)
+    connectable = create_engine(get_database_settings().database_url, poolclass=NullPool)
 
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)

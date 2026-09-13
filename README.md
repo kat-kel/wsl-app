@@ -19,9 +19,9 @@ Open `http://localhost:5173` in your browser. The API is available at `http://lo
 
 The root [`.env.example`](./.env.example) is the single source of truth for local environment variables:
 
-- `DATABASE_URL` : PostgreSQL connection string used by FastAPI.
+- `DATABASE_URL` : PostgreSQL connection string. Read by both the API and the Alembic migrations, and the only variable the migrations need.
 - `BACKEND_PORT` / `FRONTEND_PORT` : ports the backend and frontend containers listen on and publish to the host. `CORS_ORIGINS` and `BACKEND_URL` are derived from these directly in `compose.yaml`, not set independently.
-- `WRITE_API_KEYS` : required, comma-separated, each key minimum 32 characters. The set of keys the API accepts on write endpoints. The app refuses to start if it is missing or any key is too short, so a misconfigured deployment fails immediately instead of serving unauthenticated writes.
+- `WRITE_API_KEYS` : required by the API service, comma-separated, each key minimum 32 characters. The set of keys the API accepts on write endpoints. The API refuses to start if it is missing or any key is too short, so a misconfigured deployment fails immediately instead of serving unauthenticated writes. Processes that only touch the database, such as migrations, do not read it.
 
 ## Reads are public, writes are authenticated
 
@@ -34,7 +34,10 @@ Note that CORS is not part of this: `CORS_ORIGINS` only constrains browser JavaS
 does nothing to a request from `curl` or a script. The API key is the actual control.
 
 In a deployed environment `WRITE_API_KEYS` must come from a secret store (Secret Manager
-injected as an env var on Cloud Run), never from a file in the repo.
+injected as an env var on Cloud Run), never from a file in the repo. It is scoped to the
+API service alone: [`config.py`](./backend/src/app/config.py) splits `DatabaseSettings`
+(`DATABASE_URL` only) from the `AppSettings` the API validates at startup, so the
+migration step never has to be handed a credential for endpoints it does not serve.
 
 Because the API accepts a *set* of keys, rotation needs no window where the server and its
 clients disagree:
@@ -115,7 +118,9 @@ build.
 
 Production schema updates are an explicit deploy step that runs `alembic upgrade head`
 before the new revision serves traffic. Do not put it in the container's start command:
-with more than one instance, concurrent migration runs race each other.
+with more than one instance, concurrent migration runs race each other. That step needs
+`DATABASE_URL` and nothing else — `alembic/env.py` reads `DatabaseSettings`, not the
+API's `AppSettings`.
 
 The Vite dev server is used locally for fast reloads. The production frontend image builds the React app and serves it with Nginx. The production backend is an independent FastAPI image.
 
