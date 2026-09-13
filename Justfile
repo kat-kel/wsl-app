@@ -18,10 +18,14 @@ backend-ready:
     docker compose up -d db backend
 
 # --- TESTS ---
-test: test-back test-front
+test: test-back-integration test-back test-front
 
 [working-directory: "backend"]
-test-back: backend-ready
+test-back:
+    uv run pytest -m "not integration"
+
+[working-directory: "backend"]
+test-back-integration: backend-ready
     uv run pytest
 
 [working-directory: "frontend"]

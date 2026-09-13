@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -5,6 +6,7 @@ from app.database import engine
 from app.main import app
 
 
+@pytest.mark.integration
 def test_database_connection() -> None:
     with engine.connect() as connection:
         result = connection.execute(text("SELECT 1"))

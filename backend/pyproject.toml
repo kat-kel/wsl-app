@@ -43,3 +43,6 @@ dev = [
 filterwarnings = [
     "ignore::DeprecationWarning:starlette.testclient",
 ]
+markers = [
+    "integration: tests that depend on the database being ready",
+]
