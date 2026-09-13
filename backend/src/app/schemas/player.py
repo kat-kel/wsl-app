@@ -1,36 +1,35 @@
 from pydantic import BaseModel, Field, field_validator
 
+from app.models.country import COUNTRY_CODE_MAX_LENGTH
+from app.models.player import (
+    PLAYER_NAME_MAX_LENGTH,
+    POSITION_MAX_LENGTH,
+    SHIRT_NAME_MAX_LENGTH,
+)
+from app.models.team import TEAM_CODE_MAX_LENGTH
 
-class PlayerImportRead(BaseModel):
-    name: str
-    position: str
-    country: str
 
-    @field_validator("name", "position", "country", mode="before")
+class PlayerCreate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=PLAYER_NAME_MAX_LENGTH)
+    shirt_name: str = Field(min_length=1, max_length=SHIRT_NAME_MAX_LENGTH)
+    position: str = Field(min_length=1, max_length=POSITION_MAX_LENGTH)
+    country_code: str = Field(min_length=1, max_length=COUNTRY_CODE_MAX_LENGTH)
+    no: int | None = Field(default=None, ge=1, le=99)
+    team_code: str | None = Field(default=None, max_length=TEAM_CODE_MAX_LENGTH)
+
+    @field_validator(
+        "full_name",
+        "shirt_name",
+        "position",
+        "country_code",
+        "team_code",
+        mode="before",
+    )
     @classmethod
     def strip_whitespace(cls, value: str) -> str:
         return value.strip() if isinstance(value, str) else value
 
-    @property
-    def normalized_name(self) -> str:
-        return " ".join(self.name.strip().casefold().split())
-
-
-class PlayerCreate(BaseModel):
-    display_name: str
-    normalized_name: str = Field(json_schema_extra={"unique": True, "index": True})
-    position: str | None = None
-    country: str | None = None
-
 
 class PlayerRead(PlayerCreate):
     id: int
-
-
-class PlayerImportResult(BaseModel):
-    created: int
-    updated: int
-    errors: list[str]
-    total_rows: int
-    already_existing: int
-    duplicates_in_file: int
+    normalized_name: str

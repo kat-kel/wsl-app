@@ -34,6 +34,7 @@ known-first-party = ["app"]
 
 [dependency-groups]
 dev = [
+	"click>=8.5.0",
 	"httpx2>=2.12.0",
 	"pytest>=8.4.2",
 	"ruff>=0.16.6",

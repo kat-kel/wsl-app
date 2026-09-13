@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { PlayersPage } from "./pages/players";
+import "flag-icons/css/flag-icons.min.css";
 import "./styles.css";
 
 function App() {

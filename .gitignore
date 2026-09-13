@@ -1,4 +1,4 @@
 .env
 *.csv
-alembic/versions/
+__pycache__/
 .DS_STORE

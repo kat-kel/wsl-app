@@ -1,87 +1,60 @@
-import csv
-from typing import TextIO
+from enum import StrEnum
 
-from pydantic import ValidationError
+from sqlalchemy import case, func, nullslast
 from sqlmodel import Session, select
+from sqlmodel.sql.expression import SelectOfScalar
 
-from app.models import Player
-from app.schemas.player import PlayerImportRead, PlayerImportResult
-from app.services.errors import MissingColumns
+from app.models import Country, Player, Team
+from app.schemas.player import PlayerCreate
 
 
-def import_players_from_csv(
-    file: TextIO,
-    session: Session,
-) -> PlayerImportResult:
+class UnknownReference(Exception):
+    """A player refers to a country or team that does not exist."""
 
-    reader = csv.DictReader(file)
-    required_columns = {"name", "position", "country"}
-    actual_columns = set(reader.fieldnames or [])
-    missing_columns = required_columns - actual_columns
-    if missing_columns:
-        return PlayerImportResult(
-            total_rows=0,
-            created=0,
-            updated=0,
-            already_existing=0,
-            duplicates_in_file=0,
-            errors=[str(MissingColumns(col)) for col in missing_columns],
-        )
 
-    rows = list(reader)
-    total_rows = len(rows)
-    errors: list[str] = []
-    candidates: dict[str, Player] = {}
-    duplicates_in_file = 0
+def normalize_name(full_name: str) -> str:
+    return " ".join(full_name.casefold().split())
 
-    for row_numer, row in enumerate(rows, start=2):
-        try:
-            imported_player = PlayerImportRead.model_validate(row)
-        except ValidationError as e:
-            errors.append(f"Row {row_numer}: {e}")
-            continue
 
-        if imported_player.normalized_name in candidates:
-            duplicates_in_file += 1
-            continue
+class PlayerSort(StrEnum):
+    NAME = "name"
+    NUMBER = "number"
+    POSITION = "position"
+    POSITION_NAME = "position_name"
 
-        candidates[imported_player.normalized_name] = Player(
-            display_name=imported_player.name,
-            normalized_name=imported_player.normalized_name,
-            position=imported_player.position,
-            country=imported_player.country,
-        )
 
-    if not candidates:
-        return PlayerImportResult(
-            total_rows=total_rows,
-            created=0,
-            updated=0,
-            already_existing=0,
-            duplicates_in_file=duplicates_in_file,
-            errors=errors,
-        )
+# Ranked rather than sorted alphabetically so the order reads like a team sheet.
+# An unrecognised position sorts last instead of failing the query.
+POSITION_RANK = case(
+    {"goalkeeper": 0, "defender": 1, "midfielder": 2, "forward": 3},
+    value=func.lower(Player.position),
+    else_=99,
+)
 
-    existing_names = set(
-        session.exec(
-            select(Player.normalized_name).where(
-                Player.normalized_name.in_(candidates.keys())
-            )
-        ).all()
-    )
+BY_NAME = func.lower(Player.shirt_name)
+BY_NUMBER = nullslast(Player.no.asc())
 
-    new_players = [
-        player for name, player in candidates.items() if name not in existing_names
-    ]
+SORT_ORDERS = {
+    PlayerSort.NAME: (BY_NAME,),
+    PlayerSort.NUMBER: (BY_NUMBER,),
+    PlayerSort.POSITION: (POSITION_RANK, BY_NUMBER),
+    PlayerSort.POSITION_NAME: (POSITION_RANK, BY_NAME),
+}
 
-    session.add_all(new_players)
-    session.commit()
 
-    return PlayerImportResult(
-        total_rows=total_rows,
-        created=len(new_players),
-        updated=0,
-        already_existing=len(existing_names),
-        duplicates_in_file=duplicates_in_file,
-        errors=errors,
-    )
+def select_players(sort: PlayerSort) -> SelectOfScalar[Player]:
+    # id breaks remaining ties so equal keys never swap places between requests.
+    return select(Player).order_by(*SORT_ORDERS[sort], Player.id)
+
+
+def validate_references(player_data: PlayerCreate, session: Session) -> None:
+    """Reject unknown country/team codes before the database raises on the FK."""
+    if session.get(Country, player_data.country_code) is None:
+        raise UnknownReference(f"Unknown country_code {player_data.country_code!r}")
+
+    if player_data.team_code is None:
+        return
+
+    team = session.exec(select(Team).where(Team.code == player_data.team_code)).first()
+    if team is None:
+        raise UnknownReference(f"Unknown team_code {player_data.team_code!r}")

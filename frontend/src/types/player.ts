@@ -1,7 +1,10 @@
 export type Player = {
     id: number;
-    display_name: string;
+    full_name: string;
+    shirt_name: string;
     normalized_name: string;
-    position: string | null;
-    country: string | null;
+    position: string;
+    country_code: string;
+    no: number | null;
+    team_code: string | null;
 };

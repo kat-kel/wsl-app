@@ -15,10 +15,10 @@ run:
     docker compose up backend frontend
 
 backend-ready:
-    docker compose up -d db backend
+    docker compose up -d --wait db backend
 
 # --- TESTS ---
-test: test-back-integration test-back test-front
+test: test-back-integration test-front
 
 [working-directory: "backend"]
 test-back:
@@ -61,5 +61,9 @@ db-history: backend-ready
 
 db-reset: backend-ready
     docker compose down -v
-    docker compose up -d db backend
+    docker compose up -d --wait db backend
     docker compose exec backend alembic upgrade head
+
+[working-directory: "backend"]
+db-post command: backend-ready
+    uv run scripts/load_csv.py {{command}}

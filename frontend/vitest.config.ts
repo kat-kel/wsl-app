@@ -1,10 +1,15 @@
-import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react";
+import { defineConfig, mergeConfig } from "vitest/config";
 
-export default defineConfig({
-  plugins: [react()],
-  test: {
-    environment: "jsdom",
-    setupFiles: ["./src/test-setup.ts"],
-  },
-});
+import viteConfig from "./vite.config";
+
+// Inherits from vite.config.ts so the path aliases are defined once. Declaring
+// them again here is what previously let tests resolve differently from the app.
+export default mergeConfig(
+  viteConfig,
+  defineConfig({
+    test: {
+      environment: "jsdom",
+      setupFiles: ["./src/test-setup.ts"],
+    },
+  }),
+);

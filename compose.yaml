@@ -37,12 +37,26 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
       BACKEND_URL: ${BACKEND_URL:-http://backend:${BACKEND_PORT:-8000}}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-5173}}
+      WRITE_API_KEYS: ${WRITE_API_KEYS:?set WRITE_API_KEYS in .env}
     volumes:
       - ./backend/src:/app/backend/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
     ports:
       - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
+    # Docker publishes the host port as soon as the container starts, so without
+    # this a client can connect before uvicorn is accepting and get a closed
+    # connection instead of a response. Recipes wait on it via `up --wait`.
+    healthcheck:
+      test:
+        - CMD
+        - /app/backend/.venv/bin/python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:${BACKEND_PORT:-8000}/health").read()
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 2s
     depends_on:
       db:
         condition: service_healthy

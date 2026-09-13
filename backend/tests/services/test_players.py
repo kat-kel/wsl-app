@@ -1,24 +1,11 @@
 from collections.abc import Iterator
-from csv import writer
-from io import StringIO
 
 import pytest
-from sqlmodel import Session, SQLModel, StaticPool, create_engine, select
+from sqlmodel import Session, SQLModel, StaticPool, create_engine
 
-from app.models import Player
-from app.schemas.player import PlayerImportResult
-from app.services.players import import_players_from_csv
-
-TWO_PLAYERS = [
-    ("Alex Morgan", "Forward", "USA"),
-    ("Sam Kerr", "Forward", "Australia"),
-]
-
-DUPLICATE_PLAYERS = [
-    ("Alex Morgan", "Forward", "USA"),
-    ("Sam Kerr", "Forward", "Australia"),
-    ("Alex Morgan", "Forward", "USA"),
-]
+from app.models import Country, Team
+from app.schemas.player import PlayerCreate
+from app.services.players import UnknownReference, normalize_name, validate_references
 
 
 @pytest.fixture()
@@ -28,79 +15,49 @@ def session() -> Iterator[Session]:
     )
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
+        session.add(Country(fa_code="USA", code="US", name="United States of America"))
+        session.add(Team(code="LDN", full_name="London City", short_name="London"))
+        session.commit()
         yield session
 
 
-def make_csv_file(rows: list[tuple]) -> StringIO:
-    csv_file = StringIO()
-    csv_writer = writer(csv_file)
-    csv_writer.writerow(["name", "position", "country"])
-    csv_writer.writerows(rows)
-    csv_file.seek(0)
-    return csv_file
+def player(**overrides: object) -> PlayerCreate:
+    return PlayerCreate(
+        **{
+            "full_name": "Alex Morgan",
+            "shirt_name": "Morgan",
+            "position": "forward",
+            "country_code": "US",
+            **overrides,
+        }
+    )
 
 
 @pytest.mark.parametrize(
-    ("rows"),
+    ("full_name", "expected"),
     [
-        TWO_PLAYERS,
-        DUPLICATE_PLAYERS,
+        ("Alex Morgan", "alex morgan"),
+        ("  Alex   MORGAN ", "alex morgan"),
+        ("SAM KERR", "sam kerr"),
     ],
 )
-def test_import_two_players_from_csv(session: Session, rows: list[tuple]) -> None:
-    result: PlayerImportResult = import_players_from_csv(make_csv_file(rows), session)
-
-    players = session.exec(select(Player)).all()
-    player_names = {player.display_name for player in players}
-
-    assert result.total_rows == len(rows)
-    assert result.created == 2
-    assert result.updated == 0
-    assert result.already_existing == 0
-    assert result.duplicates_in_file == len(rows) - 2
-    assert result.errors == []
-    assert len(players) == 2
-    assert player_names == {"Alex Morgan", "Sam Kerr"}
+def test_normalize_name(full_name: str, expected: str) -> None:
+    assert normalize_name(full_name) == expected
 
 
-def test_import_players_from_csv_with_missing_columns(session: Session) -> None:
-    csv_file = StringIO()
-    csv_file.write("name,position\n")
-    csv_file.write("Alex Morgan,Forward\n")
-    csv_file.seek(0)
-
-    result = import_players_from_csv(csv_file, session)
-
-    assert result.total_rows == 0
-    assert result.created == 0
-    assert result.updated == 0
-    assert result.already_existing == 0
-    assert result.duplicates_in_file == 0
-    assert "country" in result.errors
+def test_validate_references_accepts_known_codes(session: Session) -> None:
+    validate_references(player(team_code="LDN"), session)
 
 
-def test_import_players_skips_existing_players(session: Session) -> None:
-    existing_player = Player(
-        display_name="Alex Morgan",
-        normalized_name="alex morgan",
-        position="Forward",
-        country="USA",
-    )
-    session.add(existing_player)
-    session.commit()
-    _players = session.exec(select(Player)).all()
-    assert len(_players) == 1
+def test_validate_references_allows_a_player_with_no_team(session: Session) -> None:
+    validate_references(player(team_code=None), session)
 
-    result = import_players_from_csv(make_csv_file(TWO_PLAYERS), session)
 
-    players = session.exec(select(Player)).all()
-    player_names = {player.display_name for player in players}
+def test_validate_references_rejects_unknown_country(session: Session) -> None:
+    with pytest.raises(UnknownReference, match="country_code"):
+        validate_references(player(country_code="ZZ"), session)
 
-    assert result.total_rows == len(TWO_PLAYERS)
-    assert result.created == 1  # Only Sam Kerr should be created
-    assert result.updated == 0
-    assert result.already_existing == 1  # Alex Morgan already exists
-    assert result.duplicates_in_file == 0
-    assert result.errors == []
-    assert len(players) == 2
-    assert player_names == {"Alex Morgan", "Sam Kerr"}
+
+def test_validate_references_rejects_unknown_team(session: Session) -> None:
+    with pytest.raises(UnknownReference, match="team_code"):
+        validate_references(player(team_code="NOPE"), session)
