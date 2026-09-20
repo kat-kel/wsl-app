@@ -4,12 +4,19 @@ services:
     image: postgres:18.6-trixie
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-app}
+      # Bootstrap superuser: only for the Postgres image's own init and for
+      # deploy/db-init/ to create app_writer and api_reader. Nothing
+      # application-level connects with this role.
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
+      # Creates app_writer and api_reader, the two roles anything actually
+      # connects with. Runs only against a fresh volume, so `just db-reset`
+      # is what re-applies a change here.
+      - ./deploy/db-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-app} -d $${POSTGRES_DB:-app}"]
       interval: 5s
@@ -34,14 +41,23 @@ services:
       # --port explicitly, and config.py's AppSettings doesn't read PORT anyway.
       # It's only consumed by Dockerfile.backend's own CMD, which this compose
       # file never runs (only Cloud Run does).
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app:app@db:5432/app}
-      BACKEND_URL: ${BACKEND_URL:-http://backend:${BACKEND_PORT:-8000}}
+      # Write-capable: used by `docker compose exec` calls to Alembic and the
+      # load job, never by the running API process.
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://app_writer:app_writer@db:5432/app}
+      # SELECT only: what app.database actually builds the API's engine from.
+      API_DATABASE_URL: ${API_DATABASE_URL:-postgresql+psycopg://api_reader:api_reader@db:5432/app}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-5173}}
-      WRITE_API_KEYS: ${WRITE_API_KEYS:?set WRITE_API_KEYS in .env}
+      # Where the load job reads CSVs from. A deployed environment points this
+      # at the GCS bucket the scraper writes to; locally it is the mount below.
+      DATA_SOURCE: ${DATA_SOURCE:-/app/fixtures}
     volumes:
       - ./backend/src:/app/backend/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      # Development data only, and read-only because the job never writes back.
+      # Deliberately not COPYd by Dockerfile.backend: the deployed job gets its
+      # data from the bucket, so fixtures have no business in the image.
+      - ./fixtures:/app/fixtures:ro
     ports:
       - "${BACKEND_PORT:-8000}:${BACKEND_PORT:-8000}"
     # Docker publishes the host port as soon as the container starts, so without
@@ -62,15 +78,27 @@ services:
         condition: service_healthy
 
   frontend:
-    image: node:22-alpine
+    # Targets the `deps` stage of the same Dockerfile the cloud image is built
+    # from, so dev and the production build share one Node version and one
+    # locked dependency tree. The stage stops before `npm run build`: this
+    # container runs Vite's dev server, not the compiled bundle.
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+      target: deps
+    command: npm run dev -- --host 0.0.0.0
     working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     environment:
-      # PORT is set here becasue the local Vite config reads it 
+      # PORT is set here because the local Vite config reads it.
       PORT: ${FRONTEND_PORT:-5173}
-      VITE_API_URL: ${VITE_API_URL:-http://backend:${BACKEND_PORT:-8000}}
+      # Where this container's proxy forwards /api. The same variable Nginx
+      # reads in the cloud image -- one name, two proxies, same meaning.
+      BACKEND_URL: ${BACKEND_URL:-http://backend:${BACKEND_PORT:-8000}}
     volumes:
       - ./frontend:/app
+      # Keeps the bind mount above from shadowing the node_modules baked into
+      # the image. Docker seeds this volume from the image only while it is
+      # empty, so a changed package.json needs `just frontend-deps`.
       - frontend-node-modules:/app/node_modules
     ports:
       - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"

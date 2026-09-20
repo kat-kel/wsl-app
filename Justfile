@@ -14,6 +14,13 @@ build:
 run:
     docker compose up backend frontend
 
+frontend-deps:
+    docker compose run --rm --no-deps frontend npm ci
+
+frontend-image:
+    docker build --target serve -f deploy/Dockerfile.frontend -t wsl-frontend:local .
+    docker run --rm -e PORT=8080 -e BACKEND_URL=http://127.0.0.1:9 wsl-frontend:local nginx -t
+
 backend-ready:
     docker compose up -d --wait db backend
 
@@ -64,6 +71,8 @@ db-reset: backend-ready
     docker compose up -d --wait db backend
     docker compose exec backend alembic upgrade head
 
-[working-directory: "backend"]
-db-post command: backend-ready
-    uv run scripts/load_csv.py {{command}}
+db-load command: backend-ready
+    docker compose exec backend python -m app.jobs.load_csv {{command}}
+
+# Teams first -- players.team_code is a foreign key onto them.
+db-load-all: (db-load "teams") (db-load "players")

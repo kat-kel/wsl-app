@@ -1,4 +1,9 @@
 .env
-*.csv
 __pycache__/
 .DS_STORE
+
+# Stray CSVs stay out of the repo, but the development fixtures are tracked on
+# purpose: they are small, public, and versioning them makes every change to the
+# sample data reviewable as a diff. Deployed environments read from GCS instead.
+*.csv
+!fixtures/*.csv

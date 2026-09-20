@@ -1,15 +1,31 @@
-FROM node:26-alpine AS build
+# Three stages, two of which ship somewhere:
+#   deps  -- Node + locked dependencies. Compose targets this for local dev.
+#   build -- compiles the SPA to /app/dist. Used only as input to `serve`.
+#   serve -- the cloud image: Nginx and the built files, no Node at all.
+# The Node major has to live here as well as in frontend/.nvmrc, because FROM
+# cannot read a file and setup-node cannot read a Dockerfile. Nothing at build
+# time notices if the two disagree, so CI asserts they match instead.
+# (package.json's "engines" is a separate guard: a floor on the Node running
+# npm, not a check that these two declarations agree.)
+ARG NODE_VERSION=24
 
+FROM node:${NODE_VERSION}-alpine AS deps
 WORKDIR /app
-COPY frontend/package*.json ./
-RUN npm install
+COPY frontend/package.json frontend/package-lock.json ./
+# `npm ci` installs the lockfile exactly and fails if package.json disagrees
+# with it -- the same guarantee `uv sync --locked` gives the backend.
+RUN npm ci
+
+FROM deps AS build
 COPY frontend/ ./
 RUN npm run build
 
-FROM nginx:alpine
-# Scope envsubst to just these vars so it doesn't also try to substitute
-# Nginx's own $variables in the template
-ENV NGINX_ENVSUBST_FILTER=PORT,BACKEND_URL
-# Nginx automatically runs 'envsubst' on templates on container startup
+FROM nginx:alpine AS serve
+# Nginx runs envsubst over /etc/nginx/templates on startup, which is how PORT
+# and BACKEND_URL get resolved per deployment rather than baked into the image.
+# The value is used as a regex against environment variable NAMES, so it must
+# be alternation rather than a comma list; anchored so it names exactly these
+# two and cannot later catch an unrelated variable.
+ENV NGINX_ENVSUBST_FILTER="^(PORT|BACKEND_URL)$"
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html

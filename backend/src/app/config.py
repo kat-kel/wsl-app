@@ -1,10 +1,8 @@
 # Environment-backed settings
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-MIN_WRITE_API_KEY_LENGTH = 32
 
 
 def _split_csv(value: str) -> list[str]:
@@ -12,12 +10,12 @@ def _split_csv(value: str) -> list[str]:
 
 
 class DatabaseSettings(BaseSettings):
-    """What a process needs to reach the database, and nothing else.
+    """What a process needs to reach the database with a write-capable role.
 
-    Migrations are their own deploy step and never serve a request, so they read
-    this rather than AppSettings. Keeping the two apart means the migration step
-    is not handed an API key it has no use for, and cannot fail to start over a
-    field that has nothing to do with the schema.
+    Migrations and the CSV load job are the only two things that ever change a
+    row, so they are also the only two things trusted with DATABASE_URL. Both
+    are their own deploy steps that never serve a request, so they read this
+    rather than AppSettings.
     """
 
     database_url: str
@@ -29,37 +27,20 @@ class DatabaseSettings(BaseSettings):
 
 
 class AppSettings(DatabaseSettings):
-    """Everything the API service needs, the database connection included.
+    """Everything the API service needs.
 
-    Every field here is required: the write routes are always mounted, so a
-    deployment missing a key would serve them broken rather than not at all.
+    `database_url` is overridden rather than inherited: it comes from
+    API_DATABASE_URL, a credential bound to a Postgres role that can only
+    SELECT (see deploy/db-init/). A write route added to the API by mistake
+    would still fail at the database, not only in code review.
     """
 
+    database_url: str = Field(validation_alias="API_DATABASE_URL")
     cors_origins: str
-    # Comma-separated so several keys can be valid at once: during a rotation the
-    # old and the new key are both accepted until every client has moved over.
-    write_api_keys: str
-
-    @field_validator("write_api_keys")
-    @classmethod
-    def validate_write_api_keys(cls, value: str) -> str:
-        keys = _split_csv(value)
-        if not keys:
-            raise ValueError("at least one write API key is required")
-        if any(len(key) < MIN_WRITE_API_KEY_LENGTH for key in keys):
-            raise ValueError(
-                f"every write API key must be at least "
-                f"{MIN_WRITE_API_KEY_LENGTH} characters"
-            )
-        return value
 
     @property
     def cors_origin_list(self) -> list[str]:
         return _split_csv(self.cors_origins)
-
-    @property
-    def write_api_key_list(self) -> list[str]:
-        return _split_csv(self.write_api_keys)
 
 
 @lru_cache

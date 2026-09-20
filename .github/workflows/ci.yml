@@ -56,12 +56,21 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+      # The Node major is declared twice by necessity -- FROM cannot read a
+      # file, setup-node cannot read a Dockerfile -- so drift between them is
+      # caught here rather than by whichever environment happens to break first.
+      - name: Node version declared consistently
+        run: |
+          nvmrc="$(cat .nvmrc)"
+          arg="$(sed -n 's/^ARG NODE_VERSION=//p' ../deploy/Dockerfile.frontend)"
+          test "$nvmrc" = "$arg" \
+            || { echo "::error::.nvmrc says '$nvmrc', Dockerfile.frontend says '$arg'"; exit 1; }
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: frontend/.nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm install
+      - run: npm ci
       - run: npm test
       - run: npm run typecheck
       - run: npm run build
@@ -83,4 +92,23 @@ jobs:
           context: .
           file: deploy/Dockerfile.frontend
           push: false
+          load: true
           tags: wsl-frontend:ci
+      # Building the image only proves it assembled. Nginx resolves ${PORT}
+      # and ${BACKEND_URL} from its template when the container starts, so a
+      # broken substitution is invisible until something runs it.
+      - name: Smoke-test the frontend image
+        run: |
+          # An IP literal, not a hostname: Nginx resolves proxy_pass at config
+          # load, so an unresolvable name would fail this for the wrong reason.
+          docker run -d --name fe -e PORT=8080 -e BACKEND_URL=http://127.0.0.1:9 \
+            -p 8080:8080 wsl-frontend:ci
+          for _ in $(seq 1 20); do
+            curl -fsS localhost:8080/ >/dev/null && break || sleep 1
+          done
+          docker exec fe nginx -t
+          curl -fsS localhost:8080/ | grep -q '<div id="root"'
+          # An unknown path must fall back to index.html for client-side routing.
+          test "$(curl -fsS -o /dev/null -w '%{http_code}' localhost:8080/players)" = 200
+      - if: always()
+        run: docker logs fe

@@ -5,6 +5,7 @@ description = "FastAPI backend for wsl"
 requires-python = ">=3.14"
 dependencies = [
 	"alembic>=1.19.2",
+	"click>=8.5.0",
 	"fastapi>=0.141.1",
 	"psycopg[binary]>=3.3.5",
 	"pydantic>=2.13.5",
@@ -32,9 +33,13 @@ src = ["src"]
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 
+[project.scripts]
+load-csv = "app.jobs.load_csv:cli"
+
 [dependency-groups]
 dev = [
-	"click>=8.5.0",
+	# Required by starlette.testclient, which the API tests use. Not the load
+	# job's client any more -- that talks to the database directly.
 	"httpx2>=2.12.0",
 	"pytest>=8.4.2",
 	"ruff>=0.16.6",
